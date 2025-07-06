@@ -1,40 +1,50 @@
 const express = require("express");
-const server = require("http").createServer();
-const app = express();
+const http = require("http");
+const WebSocket = require("ws");
 
-app.get("/", function (req, res) {
+const app = express();
+const server = http.createServer(app);
+
+app.get("/", (req, res) => {
   res.sendFile("index.html", { root: __dirname });
 });
 
-server.on("request", app);
-server.listen(3000, function () {
-  console.log("server started on port 3000.");
+const wss = new WebSocket.Server({ noServer: true });
+
+// Only accept WebSocket upgrade requests on the SAME path `/`
+server.on("upgrade", (request, socket, head) => {
+  if (request.url === "/") {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit("connection", ws, request);
+    });
+  } else {
+    socket.destroy(); // reject upgrades on unknown paths
+  }
 });
 
-// begin websocket
-
-const WebSocketServer = require("ws").Server;
-
-const wss = new WebSocketServer({ server: server });
-
-wss.on("connection", function connection(ws) {
+// WebSocket connection handling
+wss.on("connection", (ws) => {
+  console.log("client connected");
   const numClients = wss.clients.size;
-  console.log("clients connected", numClients);
+  wss.broadcast(`Current visitors: ${numClients}`);
 
-  wss.broadcast(`Current visiters: ${numClients}`);
+  ws.send("welcome to my server");
 
-  if (ws.readyState === ws.OPEN) {
-    ws.send("welcome to my server");
-  }
-  ws.on("close", function close() {
-    wss.broadcast(`Current visiters: ${numClients}`);
-    console.log("a client has disconnected");
+  ws.on("close", () => {
+    const newNumClients = wss.clients.size;
+    wss.broadcast(`Current visitors: ${newNumClients}`);
+    console.log("client disconnected");
   });
 });
 
+// Broadcast helper
 wss.broadcast = function broadcast(data) {
-  wss,
-    this.clients.forEach(function each(client) {
+  this.clients.forEach((client) => {
+    if (client.readyState === client.OPEN) {
       client.send(data);
-    });
+    }
+  });
 };
+
+// Start server
+server.listen(3000, () => console.log("Server running on port 3000"));
